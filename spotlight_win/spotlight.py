@@ -26,14 +26,10 @@ except ImportError:
 from fuzzywuzzy import process
 
 from .plugin_manager import plugin_manager, hookimpl
+from .config import config
 
 # --- CONFIGURE SEARCH PATHS HERE ---
-SEARCH_PATHS = [
-    os.path.expanduser("~"),  # User home
-    r"D:\PROJECTS",  # Custom directory
-    r"D:\DEV",  # Another directory
-    # Add more as needed
-]
+SEARCH_PATHS = []
 
 
 # --- Safe math evaluator ---
@@ -120,7 +116,9 @@ class LLMPlugin:
     @hookimpl
     def activate(self, text):
         question = text[4:].strip()
-        qbat_path = r"C:\Users\u674012\.local\q.bat"
+        qbat_path = config.get('DEFAULT', 'llm_location')
+        if not qbat_path:
+            return "LLM location not configured."
         try:
             cmd = f"{qbat_path} " f'"{question}"'
             result = subprocess.run(
@@ -182,7 +180,8 @@ class SpotlightDialog(QDialog):
 
     def index_search_files(self):
         files = []
-        for path in SEARCH_PATHS:
+        search_paths = config.get('DEFAULT', 'search_path').split(',')
+        for path in search_paths:
             if os.path.exists(path):
                 for f in glob.glob(os.path.join(path, "*"), recursive=True):
                     files.append(os.path.basename(f))
@@ -207,7 +206,8 @@ class SpotlightDialog(QDialog):
 
         # 2. Fuzzy file search in specified directories
         if text.strip() and self.search_files:
-            matches = process.extract(text.strip(), self.search_files, limit=15)
+            limit = config.getint('DEFAULT', 'max_results', fallback=15)
+            matches = process.extract(text.strip(), self.search_files, limit=limit)
             for filename, score in matches:
                 if score > 60:
                     QListWidgetItem(f"Open: {filename}", self.results)
@@ -246,7 +246,8 @@ class SpotlightDialog(QDialog):
         elif kind == "file":
             filename = self.last_results[idx][1]
             found = False
-            for path in SEARCH_PATHS:
+            search_paths = config.get('DEFAULT', 'search_path').split(',')
+            for path in search_paths:
                 matches = glob.glob(os.path.join(path, filename))
                 if matches:
                     os.startfile(matches[0])  # Windows; adapt for other OS

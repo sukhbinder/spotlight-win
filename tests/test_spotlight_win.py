@@ -2,7 +2,8 @@ from spotlight_win import cli
 from spotlight_win.spotlight import safe_eval
 import pytest
 from unittest.mock import patch
-from spotlight_win.spotlight import ShutdownPlugin
+from spotlight_win.spotlight import ShutdownPlugin, LLMPlugin
+from spotlight_win.config import init_config
 
 
 def test_safe_eval():
@@ -81,40 +82,49 @@ def test_llm_plugin_match():
 
 @patch("subprocess.run")
 def test_llm_plugin_activate(mock_subprocess_run):
-    plugin = LLMPlugin()
-    mock_result = mock_subprocess_run.return_value
-    mock_result.stdout = "Paris"
-    mock_result.stderr = ""
-    mock_result.strip.return_value = "Paris" # Mock the strip method as well
+    init_config()
+    with patch('spotlight_win.spotlight.config.get') as mock_config_get:
+        mock_config_get.return_value = r"C:\Users\u674012\.local\q.bat"
+        plugin = LLMPlugin()
+        mock_result = mock_subprocess_run.return_value
+        mock_result.stdout = "Paris"
+        mock_result.stderr = ""
+        mock_result.strip.return_value = "Paris" # Mock the strip method as well
 
-    result = plugin.activate("llm what is the capital of france")
+        result = plugin.activate("llm what is the capital of france")
     
-    # Check if subprocess.run was called with the correct arguments
-    mock_subprocess_run.assert_called_once()
-    args, kwargs = mock_subprocess_run.call_args
-    assert args[0][0].endswith("q.bat") # Check if q.bat is in the command
-    assert args[0][1] == "what is the capital of france"
-    assert kwargs["capture_output"] is True
-    assert kwargs["text"] is True
-    assert kwargs["shell"] is True
+        # Check if subprocess.run was called with the correct arguments
+        mock_subprocess_run.assert_called_once()
+        args, kwargs = mock_subprocess_run.call_args
+        assert args[0][0].endswith("q.bat") # Check if q.bat is in the command
+        assert args[0][1] == "what is the capital of france"
+        assert kwargs["capture_output"] is True
+        assert kwargs["text"] is True
+        assert kwargs["shell"] is True
     
-    assert result == "Paris"
+        assert result == "Paris"
 
 @patch("subprocess.run")
 def test_llm_plugin_activate_error(mock_subprocess_run):
-    plugin = LLMPlugin()
-    mock_subprocess_run.side_effect = Exception("Test error")
+    init_config()
+    with patch('spotlight_win.spotlight.config.get') as mock_config_get:
+        mock_config_get.return_value = r"C:\Users\u674012\.local\q.bat"
+        plugin = LLMPlugin()
+        mock_subprocess_run.side_effect = Exception("Test error")
 
-    result = plugin.activate("llm something bad happened")
-    assert result == "Error: Test error"
+        result = plugin.activate("llm something bad happened")
+        assert result == "Error: Test error"
 
 @patch("subprocess.run")
 def test_llm_plugin_activate_no_response(mock_subprocess_run):
-    plugin = LLMPlugin()
-    mock_result = mock_subprocess_run.return_value
-    mock_result.stdout = ""
-    mock_result.stderr = ""
-    mock_result.strip.return_value = "" # Mock the strip method as well
+    init_config()
+    with patch('spotlight_win.spotlight.config.get') as mock_config_get:
+        mock_config_get.return_value = r"C:\Users\u674012\.local\q.bat"
+        plugin = LLMPlugin()
+        mock_result = mock_subprocess_run.return_value
+        mock_result.stdout = ""
+        mock_result.stderr = ""
+        mock_result.strip.return_value = "" # Mock the strip method as well
 
-    result = plugin.activate("llm no response expected")
-    assert result == "No response."
+        result = plugin.activate("llm no response expected")
+        assert result == "No response."
