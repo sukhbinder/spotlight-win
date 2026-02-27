@@ -25,6 +25,8 @@ except ImportError:
     sys.exit(1)
 from fuzzywuzzy import process
 
+from .plugin_manager import plugin_manager, hookimpl
+
 # --- CONFIGURE SEARCH PATHS HERE ---
 SEARCH_PATHS = [
     os.path.expanduser("~"),  # User home
@@ -72,52 +74,50 @@ def safe_eval(expr):
 
 
 # --- Plugin system ---
-class Plugin:
-    def match(self, text):
-        """Return (score, display_text) or None if not matched."""
-        return None
-
-    def activate(self, text):
-        """Perform the action when selected."""
-        pass
-
-
-class ShutdownPlugin(Plugin):
+class ShutdownPlugin:
+    @hookimpl
     def match(self, text):
         if "shutdown" in text.lower():
             return (100, "Shutdown computer")
         return None
 
+    @hookimpl
     def activate(self, text):
         os.system("shutdown /s /t 1")  # Windows; adapt for other OS
 
 
-class RestartPlugin(Plugin):
+class RestartPlugin:
+    @hookimpl
     def match(self, text):
         if "restart" in text.lower():
             return (100, "Restart computer")
         return None
 
+    @hookimpl
     def activate(self, text):
         os.system("shutdown /r /t 1")  # Windows; adapt for other OS
 
 
-class OpenSettingsPlugin(Plugin):
+class OpenSettingsPlugin:
+    @hookimpl
     def match(self, text):
         if "settings" in text.lower():
             return (100, "Open Settings")
         return None
 
+    @hookimpl
     def activate(self, text):
         os.system("start ms-settings:")  # Windows; adapt for other OS
 
 
-class LLMPlugin(Plugin):
+class LLMPlugin:
+    @hookimpl
     def match(self, text):
         if text.lower().startswith("llm "):
             return (100, f"Ask LLM: {text[4:].strip()}")
         return None
 
+    @hookimpl
     def activate(self, text):
         question = text[4:].strip()
         qbat_path = r"C:\Users\u674012\.local\q.bat"
@@ -132,7 +132,11 @@ class LLMPlugin(Plugin):
         return answer  # Return the answer to be displayed in the results box
 
 
-PLUGINS = [ShutdownPlugin(), RestartPlugin(), OpenSettingsPlugin(), LLMPlugin()]
+# Register plugins
+plugin_manager.register(ShutdownPlugin())
+plugin_manager.register(RestartPlugin())
+plugin_manager.register(OpenSettingsPlugin())
+plugin_manager.register(LLMPlugin())
 
 
 # --- Spotlight Dialog ---
@@ -211,12 +215,12 @@ class SpotlightDialog(QDialog):
                     show_any = True
 
         # 3. Plugins (custom actions)
-        for plugin in PLUGINS:
-            match = plugin.match(text)
-            if match:
-                score, display_text = match
+        for plugin_instance in plugin_manager.get_plugins():
+            outcome = plugin_manager.hook.match(plugin=plugin_instance, text=text)
+            if outcome:
+                score, display_text = outcome[0] # outcome is a list of results, take the first one
                 QListWidgetItem(display_text, self.results)
-                self.last_results.append(("plugin", plugin, display_text))
+                self.last_results.append(("plugin", plugin_instance, display_text))
                 show_any = True
 
         # 4. Web search option
@@ -252,17 +256,21 @@ class SpotlightDialog(QDialog):
                 print("File not found.")
             self.hide()
         elif kind == "plugin":
-            plugin = self.last_results[idx][1]
+            plugin_instance = self.last_results[idx][1]
             display_text = self.last_results[idx][2]
-            if isinstance(plugin, LLMPlugin):
-                # Get the response from LLM
-                answer = plugin.activate(self.search.text())
+            
+            # Call the activate hook for the specific plugin instance
+            # pluggy.hook.activate returns a list of results from the hook implementations
+            # We expect only one result from the specific plugin instance
+            activated_result = plugin_manager.hook.activate(plugin=plugin_instance, text=self.search.text())
+            
+            if activated_result and isinstance(activated_result[0], str): # LLMPlugin returns a string
+                answer = activated_result[0]
                 self.results.clear()
                 QListWidgetItem(f"LLM Response: {answer}", self.results)
                 self.last_results = [("llm_response", answer)]
                 self.results.setCurrentRow(0)
             else:
-                plugin.activate(self.search.text())
                 self.hide()
         elif kind == "web":
             query = self.last_results[idx][1]
