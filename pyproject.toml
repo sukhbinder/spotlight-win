@@ -1,0 +1,34 @@
+[project]
+name = "spotlight-win"
+version = "0.0.1"
+description = "Spotlight for windows"
+readme = "README.md"
+authors = [{name = "Sukhbinder Singh"}]
+license = {text = "Apache-2.0"}
+requires-python = ">=3.8"
+classifiers = [
+    "License :: OSI Approved :: Apache Software License"
+]
+dependencies = [
+    "click",
+    "PySide6",
+    "keyboard",
+    "fuzzywuzzy",
+    "python-Levenshtein",
+]
+
+[project.urls]
+Homepage = "https://github.com/sukhbinder/spotlight-win"
+Changelog = "https://github.com/sukhbinder/spotlight-win/releases"
+Issues = "https://github.com/sukhbinder/spotlight-win/issues"
+CI = "https://github.com/sukhbinder/spotlight-win/actions"
+
+[project.scripts]
+spotlight = "spotlight_win.cli:cli"
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
