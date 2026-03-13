@@ -116,7 +116,7 @@ class LLMPlugin:
     @hookimpl
     def activate(self, text):
         question = text[4:].strip()
-        qbat_path = self.config.get('DEFAULT', 'llm_location')
+        qbat_path = "q.bat"
         if not qbat_path:
             return "LLM location not configured."
         try:
