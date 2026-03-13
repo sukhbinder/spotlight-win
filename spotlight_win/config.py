@@ -20,8 +20,8 @@ def get_config():
 
     return config
 
-config = configparser.ConfigParser()
 
 def init_config():
-    global config
     config = get_config()
+    return config
+

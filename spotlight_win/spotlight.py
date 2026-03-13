@@ -7,6 +7,7 @@ import subprocess
 import sys
 import threading
 import webbrowser
+import signal
 
 from PySide6.QtCore import QEvent, QMetaObject, Qt, Slot
 from PySide6.QtWidgets import (
@@ -26,7 +27,6 @@ except ImportError:
 from fuzzywuzzy import process
 
 from .plugin_manager import plugin_manager, hookimpl
-from .config import config
 
 # --- CONFIGURE SEARCH PATHS HERE ---
 SEARCH_PATHS = []
@@ -116,7 +116,7 @@ class LLMPlugin:
     @hookimpl
     def activate(self, text):
         question = text[4:].strip()
-        qbat_path = config.get('DEFAULT', 'llm_location')
+        qbat_path = self.config.get('DEFAULT', 'llm_location')
         if not qbat_path:
             return "LLM location not configured."
         try:
@@ -139,7 +139,7 @@ plugin_manager.register(LLMPlugin())
 
 # --- Spotlight Dialog ---
 class SpotlightDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, config=None, parent=None):
         super().__init__(parent)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
@@ -171,14 +171,15 @@ class SpotlightDialog(QDialog):
         self.results.hide()
         self.search.textChanged.connect(self.update_results)
         self.results.itemActivated.connect(self.handle_result_selected)
-        self.search_files = self.index_search_files()
+        self.search_files = self.index_search_files(config)
         self.last_results = []
+        self.config = config
 
         # Install event filters for keyboard navigation
         self.search.installEventFilter(self)
         self.results.installEventFilter(self)
 
-    def index_search_files(self):
+    def index_search_files(self, config):
         files = []
         search_paths = config.get('DEFAULT', 'search_path').split(',')
         for path in search_paths:
@@ -206,7 +207,7 @@ class SpotlightDialog(QDialog):
 
         # 2. Fuzzy file search in specified directories
         if text.strip() and self.search_files:
-            limit = config.getint('DEFAULT', 'max_results', fallback=15)
+            limit = self.config.getint('DEFAULT', 'max_results', fallback=15)
             matches = process.extract(text.strip(), self.search_files, limit=limit)
             for filename, score in matches:
                 if score > 60:
@@ -246,7 +247,7 @@ class SpotlightDialog(QDialog):
         elif kind == "file":
             filename = self.last_results[idx][1]
             found = False
-            search_paths = config.get('DEFAULT', 'search_path').split(',')
+            search_paths = self.config.get('DEFAULT', 'search_path').split(',')
             for path in search_paths:
                 matches = glob.glob(os.path.join(path, filename))
                 if matches:
@@ -285,8 +286,10 @@ class SpotlightDialog(QDialog):
     @Slot()
     def show_and_focus(self):
         self.show()
-        self.search.setFocus()
-        self.search.setCursorPosition(0)
+        # user a sigle shot timer to ensure windows is fully shown before focusing
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(10, lambda: self.search.SetFocus())
+        QTimer.singleShot(10, lambda: self.search.setCursorPosition(0))
 
     # --- Keyboard navigation ---
     def eventFilter(self, obj, event):
@@ -319,10 +322,23 @@ def create_app():
     return QApplication(sys.argv)
 
 
-def run():
+def run(config):
     """Run the Spotlight application."""
     app = create_app()
-    dlg = SpotlightDialog()
+
+    # Setup asignal handler
+    def signal_handler(sig, frame):
+        print("Received interrupt signal, shutting downn...")
+        try:
+            keyboard.unhook_all()
+        except:
+            pass
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    dlg = SpotlightDialog(config)
 
     def on_hotkey():
         QMetaObject.invokeMethod(dlg, "show_and_focus", Qt.QueuedConnection)
