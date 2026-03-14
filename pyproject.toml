@@ -15,6 +15,7 @@ dependencies = [
     "keyboard",
     "fuzzywuzzy",
     "python-Levenshtein",
+    "pluggy",
 ]
 
 [project.urls]

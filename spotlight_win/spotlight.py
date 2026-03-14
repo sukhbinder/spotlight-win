@@ -7,6 +7,7 @@ import subprocess
 import sys
 import threading
 import webbrowser
+import signal
 
 from PySide6.QtCore import QEvent, QMetaObject, Qt, Slot
 from PySide6.QtWidgets import (
@@ -25,13 +26,10 @@ except ImportError:
     sys.exit(1)
 from fuzzywuzzy import process
 
+from .plugin_manager import plugin_manager, hookimpl
+
 # --- CONFIGURE SEARCH PATHS HERE ---
-SEARCH_PATHS = [
-    os.path.expanduser("~"),  # User home
-    r"D:\PROJECTS",  # Custom directory
-    r"D:\DEV",  # Another directory
-    # Add more as needed
-]
+SEARCH_PATHS = []
 
 
 # --- Safe math evaluator ---
@@ -72,55 +70,55 @@ def safe_eval(expr):
 
 
 # --- Plugin system ---
-class Plugin:
-    def match(self, text):
-        """Return (score, display_text) or None if not matched."""
-        return None
-
-    def activate(self, text):
-        """Perform the action when selected."""
-        pass
-
-
-class ShutdownPlugin(Plugin):
+class ShutdownPlugin:
+    @hookimpl
     def match(self, text):
         if "shutdown" in text.lower():
             return (100, "Shutdown computer")
         return None
 
+    @hookimpl
     def activate(self, text):
         os.system("shutdown /s /t 1")  # Windows; adapt for other OS
 
 
-class RestartPlugin(Plugin):
+class RestartPlugin:
+    @hookimpl
     def match(self, text):
         if "restart" in text.lower():
             return (100, "Restart computer")
         return None
 
+    @hookimpl
     def activate(self, text):
         os.system("shutdown /r /t 1")  # Windows; adapt for other OS
 
 
-class OpenSettingsPlugin(Plugin):
+class OpenSettingsPlugin:
+    @hookimpl
     def match(self, text):
         if "settings" in text.lower():
             return (100, "Open Settings")
         return None
 
+    @hookimpl
     def activate(self, text):
         os.system("start ms-settings:")  # Windows; adapt for other OS
 
 
-class LLMPlugin(Plugin):
+class LLMPlugin:
+    @hookimpl
     def match(self, text):
         if text.lower().startswith("llm "):
             return (100, f"Ask LLM: {text[4:].strip()}")
         return None
 
+    @hookimpl
     def activate(self, text):
         question = text[4:].strip()
-        qbat_path = r"C:\Users\u674012\.local\q.bat"
+        qbat_path = "q.bat"
+        if not qbat_path:
+            return "LLM location not configured."
         try:
             cmd = f"{qbat_path} " f'"{question}"'
             result = subprocess.run(
@@ -132,12 +130,16 @@ class LLMPlugin(Plugin):
         return answer  # Return the answer to be displayed in the results box
 
 
-PLUGINS = [ShutdownPlugin(), RestartPlugin(), OpenSettingsPlugin(), LLMPlugin()]
+# Register plugins
+plugin_manager.register(ShutdownPlugin())
+plugin_manager.register(RestartPlugin())
+plugin_manager.register(OpenSettingsPlugin())
+plugin_manager.register(LLMPlugin())
 
 
 # --- Spotlight Dialog ---
 class SpotlightDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, config=None, parent=None):
         super().__init__(parent)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
@@ -169,16 +171,18 @@ class SpotlightDialog(QDialog):
         self.results.hide()
         self.search.textChanged.connect(self.update_results)
         self.results.itemActivated.connect(self.handle_result_selected)
-        self.search_files = self.index_search_files()
+        self.search_files = self.index_search_files(config)
         self.last_results = []
+        self.config = config
 
         # Install event filters for keyboard navigation
         self.search.installEventFilter(self)
         self.results.installEventFilter(self)
 
-    def index_search_files(self):
+    def index_search_files(self, config):
         files = []
-        for path in SEARCH_PATHS:
+        search_paths = config.get('DEFAULT', 'search_path').split(',')
+        for path in search_paths:
             if os.path.exists(path):
                 for f in glob.glob(os.path.join(path, "*"), recursive=True):
                     files.append(os.path.basename(f))
@@ -203,7 +207,8 @@ class SpotlightDialog(QDialog):
 
         # 2. Fuzzy file search in specified directories
         if text.strip() and self.search_files:
-            matches = process.extract(text.strip(), self.search_files, limit=15)
+            limit = self.config.getint('DEFAULT', 'max_results', fallback=15)
+            matches = process.extract(text.strip(), self.search_files, limit=limit)
             for filename, score in matches:
                 if score > 60:
                     QListWidgetItem(f"Open: {filename}", self.results)
@@ -211,12 +216,12 @@ class SpotlightDialog(QDialog):
                     show_any = True
 
         # 3. Plugins (custom actions)
-        for plugin in PLUGINS:
-            match = plugin.match(text)
-            if match:
-                score, display_text = match
+        for plugin_instance in plugin_manager.get_plugins():
+            outcome = plugin_manager.hook.match(plugin=plugin_instance, text=text)
+            if outcome:
+                score, display_text = outcome[0] # outcome is a list of results, take the first one
                 QListWidgetItem(display_text, self.results)
-                self.last_results.append(("plugin", plugin, display_text))
+                self.last_results.append(("plugin", plugin_instance, display_text))
                 show_any = True
 
         # 4. Web search option
@@ -242,7 +247,8 @@ class SpotlightDialog(QDialog):
         elif kind == "file":
             filename = self.last_results[idx][1]
             found = False
-            for path in SEARCH_PATHS:
+            search_paths = self.config.get('DEFAULT', 'search_path').split(',')
+            for path in search_paths:
                 matches = glob.glob(os.path.join(path, filename))
                 if matches:
                     os.startfile(matches[0])  # Windows; adapt for other OS
@@ -252,17 +258,21 @@ class SpotlightDialog(QDialog):
                 print("File not found.")
             self.hide()
         elif kind == "plugin":
-            plugin = self.last_results[idx][1]
+            plugin_instance = self.last_results[idx][1]
             display_text = self.last_results[idx][2]
-            if isinstance(plugin, LLMPlugin):
-                # Get the response from LLM
-                answer = plugin.activate(self.search.text())
+            
+            # Call the activate hook for the specific plugin instance
+            # pluggy.hook.activate returns a list of results from the hook implementations
+            # We expect only one result from the specific plugin instance
+            activated_result = plugin_manager.hook.activate(plugin=plugin_instance, text=self.search.text())
+            
+            if activated_result and isinstance(activated_result[0], str): # LLMPlugin returns a string
+                answer = activated_result[0]
                 self.results.clear()
                 QListWidgetItem(f"LLM Response: {answer}", self.results)
                 self.last_results = [("llm_response", answer)]
                 self.results.setCurrentRow(0)
             else:
-                plugin.activate(self.search.text())
                 self.hide()
         elif kind == "web":
             query = self.last_results[idx][1]
@@ -276,8 +286,10 @@ class SpotlightDialog(QDialog):
     @Slot()
     def show_and_focus(self):
         self.show()
-        self.search.setFocus()
-        self.search.setCursorPosition(0)
+        # user a sigle shot timer to ensure windows is fully shown before focusing
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(10, lambda: self.search.SetFocus())
+        QTimer.singleShot(10, lambda: self.search.setCursorPosition(0))
 
     # --- Keyboard navigation ---
     def eventFilter(self, obj, event):
@@ -310,10 +322,23 @@ def create_app():
     return QApplication(sys.argv)
 
 
-def run():
+def run(config):
     """Run the Spotlight application."""
     app = create_app()
-    dlg = SpotlightDialog()
+
+    # Setup asignal handler
+    def signal_handler(sig, frame):
+        print("Received interrupt signal, shutting downn...")
+        try:
+            keyboard.unhook_all()
+        except:
+            pass
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    dlg = SpotlightDialog(config)
 
     def on_hotkey():
         QMetaObject.invokeMethod(dlg, "show_and_focus", Qt.QueuedConnection)
