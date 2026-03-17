@@ -299,7 +299,14 @@ class SpotlightDialog(QDialog):
                 self.results.setCurrentRow(0)
                 return True
             elif event.key() == Qt.Key_Escape:
-                self.close()
+                if self.search.text() or self.results.isVisible():
+                    # Clear search and results, keep dialog open
+                    self.search.clear()
+                    self.results.hide()
+                    self.search.setFocus()
+                else:
+                    # Empty input, close dialog
+                    self.close()
                 return True
         elif obj == self.results and event.type() == QEvent.KeyPress:
             if event.key() in (Qt.Key_Return, Qt.Key_Enter):
@@ -311,7 +318,14 @@ class SpotlightDialog(QDialog):
                 self.search.setFocus()
                 return True
             elif event.key() == Qt.Key_Escape:
-                self.close()
+                if self.search.text() or self.results.isVisible():
+                    # Clear search and results, keep dialog open
+                    self.search.clear()
+                    self.results.hide()
+                    self.search.setFocus()
+                else:
+                    # Empty input, close dialog
+                    self.close()
                 return True
         return super().eventFilter(obj, event)
 
