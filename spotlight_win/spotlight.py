@@ -143,7 +143,7 @@ class SpotlightDialog(QDialog):
         super().__init__(parent)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedSize(500, 250)
+        self.setFixedSize(500, 400)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(6)
@@ -167,6 +167,7 @@ class SpotlightDialog(QDialog):
             }
             QListWidget::item:selected { background:#0060df; color:white; }
         """)
+        self.results.setMaximumHeight(320)
         layout.addWidget(self.results)
         self.results.hide()
         self.search.textChanged.connect(self.update_results)
