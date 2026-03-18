@@ -143,7 +143,7 @@ class SpotlightDialog(QDialog):
         super().__init__(parent)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedSize(500, 250)
+        self.setFixedSize(500, 400)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(6)
@@ -167,8 +167,9 @@ class SpotlightDialog(QDialog):
             }
             QListWidget::item:selected { background:#0060df; color:white; }
         """)
+        self.results.setMaximumHeight(320)
         layout.addWidget(self.results)
-        self.results.hide()
+        self.results.setMaximumHeight(0)
         self.search.textChanged.connect(self.update_results)
         self.results.itemActivated.connect(self.handle_result_selected)
         self.search_files = self.index_search_files(config)
@@ -231,10 +232,10 @@ class SpotlightDialog(QDialog):
             show_any = True
 
         if show_any:
-            self.results.show()
+            self.results.setMaximumHeight(320)
             self.results.setCurrentRow(0)  # Select first item
         else:
-            self.results.hide()
+            self.results.setMaximumHeight(0)
 
     def handle_result_selected(self, item):
         idx = self.results.row(item)
@@ -286,20 +287,29 @@ class SpotlightDialog(QDialog):
     @Slot()
     def show_and_focus(self):
         self.show()
+        self.raise_()
+        self.activateWindow()
         # user a sigle shot timer to ensure windows is fully shown before focusing
         from PySide6.QtCore import QTimer
-        QTimer.singleShot(10, lambda: self.search.SetFocus())
+        QTimer.singleShot(10, lambda: self.search.setFocus())
         QTimer.singleShot(10, lambda: self.search.setCursorPosition(0))
 
     # --- Keyboard navigation ---
     def eventFilter(self, obj, event):
         if obj == self.search and event.type() == QEvent.KeyPress:
-            if event.key() == Qt.Key_Down and self.results.isVisible():
+            if event.key() == Qt.Key_Down and self.results.maximumHeight() > 0:
                 self.results.setFocus()
                 self.results.setCurrentRow(0)
                 return True
             elif event.key() == Qt.Key_Escape:
-                self.close()
+                if self.search.text() or self.results.maximumHeight()>0:    
+                    # Clear search and results, keep dialog open
+                    self.search.clear()
+                    self.search.setFocus()
+                    self.results.setMaximumHeight(0)
+                else:
+                    # Empty input, close dialog
+                    self.close()
                 return True
         elif obj == self.results and event.type() == QEvent.KeyPress:
             if event.key() in (Qt.Key_Return, Qt.Key_Enter):
@@ -311,7 +321,14 @@ class SpotlightDialog(QDialog):
                 self.search.setFocus()
                 return True
             elif event.key() == Qt.Key_Escape:
-                self.close()
+                if self.search.text() or self.results.maximunHeight()>0:
+                    # Clear search and results, keep dialog open
+                    self.search.clear()
+                    self.results.setMaximumHeight(0)
+                    self.search.setFocus()
+                else:
+                    # Empty input, close dialog
+                    self.close()
                 return True
         return super().eventFilter(obj, event)
 
